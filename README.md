@@ -1,34 +1,25 @@
 # makepdf
 
-CLI tool to convert images to PDF.
+CLI/script to convert a collection of images to PDF.
 
 ## Installation
 
-```bash
+```sh
 uv tool install .
 ```
 
 ## Usage
 
-```bash
+```sh
 makepdf [input] [options]
-```
 
-### Directory (all images)
-
-```bash
+# Directory (all images)
 makepdf ./images -o output.pdf
-```
 
-### Glob pattern
-
-```bash
+# Glob pattern
 makepdf "*.jpg" -o output.pdf
-```
 
-### Comma-separated list
-
-```bash
+# Comma-separated list
 makepdf "img1.jpg,img2.png,img3.webp" -o output.pdf
 ```
 
@@ -38,8 +29,8 @@ makepdf "img1.jpg,img2.png,img3.webp" -o output.pdf
 - `-s, --size`: Page size A0-A10, B0-B10 (default: `A4`)
 - `-v, --verbose`: Show detailed progress
 
-## Example
+### Example
 
-```bash
+```sh
 makepdf ./photos -s A3 -v
 ```
