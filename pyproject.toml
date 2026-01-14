@@ -1,7 +1,11 @@
 [project]
 name = "makepdf"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI tool to convert images to PDF"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "reportlab>=4.0.0",
+    "pillow>=10.0.0",
+    "tqdm>=4.65.0",
+]
