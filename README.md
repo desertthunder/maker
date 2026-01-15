@@ -1,6 +1,10 @@
-# makepdf
+# maker
 
-CLI/script to convert a collection of images to PDF.
+CLI/script to make stuff.
+
+## Features
+
+- Convert a collection of images to PDF.
 
 ## Installation
 
@@ -11,16 +15,16 @@ uv tool install .
 ## Usage
 
 ```sh
-makepdf [input] [options]
+maker [input] [options]
 
 # Directory (all images)
-makepdf ./images -o output.pdf
+maker ./images -o output.pdf
 
 # Glob pattern
-makepdf "*.jpg" -o output.pdf
+maker "*.jpg" -o output.pdf
 
 # Comma-separated list
-makepdf "img1.jpg,img2.png,img3.webp" -o output.pdf
+maker "img1.jpg,img2.png,img3.webp" -o output.pdf
 ```
 
 ### Options
@@ -32,5 +36,5 @@ makepdf "img1.jpg,img2.png,img3.webp" -o output.pdf
 ### Example
 
 ```sh
-makepdf ./photos -s A3 -v
+maker ./photos -s A3 -v
 ```
