@@ -11,6 +11,7 @@ from maker.shared import (
     echo,
 )
 
+
 class NotFoundForAliasError(FileNotFoundError):
     def __init__(self, source: str):
         super().__init__(f"Alias not found for source: {source}")
@@ -29,6 +30,7 @@ class Downloader:
     ):
         self.downloads_dir = Path(downloads_dir)
         self.verbose = verbose
+        self._downloaded_files: list[dict] = []
 
     def _get_ydl_opts(
         self,
@@ -62,6 +64,18 @@ class Downloader:
                     echo(f"  Download progress: {percent:.1f}%", Color.INFO)
         elif d["status"] == "finished":
             echo("  Download complete, processing...", Color.INFO)
+            filepath = d.get("filename") or d.get("filepath")
+            if filepath:
+                for existing in self._downloaded_files:
+                    if existing.get("path") == filepath:
+                        return
+                self._downloaded_files.append(
+                    {
+                        "path": filepath,
+                        "ext": Path(filepath).suffix.lstrip("."),
+                        "filesize": d.get("total_bytes") or 0,
+                    }
+                )
 
     def download(
         self,
@@ -103,39 +117,22 @@ class Downloader:
             },
             "quiet": not self.verbose,
             "no_warnings": not self.verbose,
-            "progress_hooks": [self._progress_hook] if self.verbose else [],
+            "progress_hooks": [self._progress_hook],
         }
 
         echo(f"Downloading: {title}", Color.INFO)
 
-        downloaded_files = []
+        self._downloaded_files = []
         start_time = datetime.now().isoformat()
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
 
-            info = ydl.extract_info(url, download=False)
-
-            requested_downloads = info.get("requested_downloads", [])
-            if requested_downloads:
-                for dl_info in requested_downloads:
-                    filepath = dl_info.get("filepath")
-                    if filepath:
-                        downloaded_files.append(
-                            {
-                                "path": filepath,
-                                "ext": dl_info.get("ext", ""),
-                                "filesize": dl_info.get("filesize")
-                                or dl_info.get("filesize_approx")
-                                or 0,
-                            }
-                        )
-
         spec = DownloadSpec(
             source_url=url,
             video_id=video_id,
             alias=alias,
-            downloaded_files=downloaded_files,
+            downloaded_files=self._downloaded_files,
             yt_dlp_opts={"format": format, "noplaylist": not playlist},
             created_at=start_time,
             title=title,
@@ -199,9 +196,9 @@ class Downloader:
 
     def _validate_path(self, spec: DownloadSpec, source: str) -> Path:
         for file_info in spec.downloaded_files:
-                path = Path(file_info["path"])
-                if path.exists():
-                    return path
+            path = Path(file_info["path"])
+            if path.exists():
+                return path
         raise NotFoundForAliasError(source)
 
     def resolve_source(self, source: str) -> Path:

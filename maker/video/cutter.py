@@ -1,3 +1,4 @@
+import platform
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -10,18 +11,22 @@ from maker.shared import (
     ManifestManager,
     compute_file_hash,
     format_time,
+    Format,
     Color,
     echo,
     FFmpegNotFoundError,
     NoAudioStreamError,
     FileAlreadyExistsError,
+    FFmpegError,
 )
+
+IS_MACOS = platform.system() == "Darwin"
 
 
 class UnsupportedFormatError(Exception):
     """Unsupported format error."""
 
-    def __init__(self, fmt: str):
+    def __init__(self, fmt: str | Format):
         super().__init__(f"Unsupported format: {fmt}. Supported: {Cutter.SUPPORTED_VIDEO_FORMATS}")
 
 
@@ -31,8 +36,8 @@ class Cutter:
     DEFAULT_OUTPUT_DIR = Path("clips")
     DEFAULT_AUDIO_DIR = Path("audio")
 
-    SUPPORTED_VIDEO_FORMATS = {"mp4", "mkv", "webm", "gif"}
-    SUPPORTED_AUDIO_FORMATS = {"m4a", "wav", "mp3"}
+    SUPPORTED_VIDEO_FORMATS = {Format.MP4, Format.MKV, Format.WEBM, Format.GIF}
+    SUPPORTED_AUDIO_FORMATS = {Format.M4A, Format.WAV, Format.MP3}
 
     def __init__(
         self,
@@ -40,16 +45,17 @@ class Cutter:
         audio_dir: Path | str = DEFAULT_AUDIO_DIR,
         ffmpeg_bin: str | None = None,
         verbose: bool = False,
+        overwrite: bool = False,
     ):
         self.output_dir = Path(output_dir)
         self.audio_dir = Path(audio_dir)
         self.ffmpeg_bin = ffmpeg_bin
         self.verbose = verbose
+        self.overwrite = overwrite
 
         self._ensure_ffmpeg()
 
     def _ensure_ffmpeg(self) -> None:
-        """Ensure FFmpeg is available."""
         if self.ffmpeg_bin:
             if not Path(self.ffmpeg_bin).exists():
                 raise FFmpegNotFoundError()
@@ -74,10 +80,9 @@ class Cutter:
         source_path: Path,
         start: float,
         end: float,
-        fmt: str,
+        fmt: str | Format,
         output_dir: Path,
     ) -> Path:
-        """Generate output path for a clip."""
         stem = source_path.stem
         time_suffix = (
             f"{format_time(start).replace(':', '-')}_to_{format_time(end).replace(':', '-')}"
@@ -86,19 +91,22 @@ class Cutter:
         return output_dir / filename
 
     def _probe_audio(self, path: Path) -> bool:
-        """Check if a file has an audio stream."""
         try:
             probe = ffmpeg.probe(str(path))
             return any(s.get("codec_type") == "audio" for s in probe.get("streams", []))
         except ffmpeg.Error:
             return False
 
+    def _check_overwrite(self, path: Path, overwrite: bool) -> None:
+        if path.exists() and not overwrite:
+            raise FileAlreadyExistsError(str(path))
+
     def clip(
         self,
         source_path: Path,
         start: float,
         end: float,
-        fmt: str,
+        fmt: str | Format,
         output_dir: Path | None = None,
         overwrite: bool = False,
         allow_no_audio: bool = False,
@@ -136,7 +144,7 @@ class Cutter:
 
         echo(f"Creating {fmt.upper()} clip: {output_path.name}", Color.INFO)
 
-        if fmt == "gif":
+        if fmt == Format.GIF:
             self._create_gif(source_path, start, end, output_path)
         else:
             self._create_video_clip(source_path, start, end, fmt, output_path, allow_no_audio)
@@ -163,24 +171,20 @@ class Cutter:
         source_path: Path,
         start: float,
         end: float,
-        fmt: str,
+        fmt: str | Format,
         output_path: Path,
         allow_no_audio: bool,
     ) -> None:
-        """Create a video clip with frame-accurate trimming."""
         has_audio = self._probe_audio(source_path)
 
         if not has_audio and not allow_no_audio:
             raise NoAudioStreamError(str(source_path))
 
-        input_stream = ffmpeg.input(str(source_path))
-
-        video = input_stream.video.filter("trim", start=start, end=end).filter(
-            "setpts", "PTS-STARTPTS"
-        )
+        inp = ffmpeg.input(str(source_path))
+        video = inp.video.filter("trim", start=start, end=end).filter("setpts", "PTS-STARTPTS")
 
         if has_audio:
-            audio = input_stream.audio.filter("atrim", start=start, end=end).filter(
+            audio = inp.audio.filter("atrim", start=start, end=end).filter(
                 "asetpts", "PTS-STARTPTS"
             )
             streams = [video, audio]
@@ -188,9 +192,34 @@ class Cutter:
             streams = [video]
 
         output_kwargs = self._get_output_kwargs(fmt)
-        ffmpeg.output(*streams, str(output_path), **output_kwargs).overwrite_output(
-            output_path.exists()
-        ).run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
+        out = ffmpeg.output(*streams, str(output_path), **output_kwargs).overwrite_output()
+
+        cmd = out.compile()
+
+        probe = ffmpeg.probe(str(source_path))
+        video_codec = None
+        for stream in probe.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_codec = stream.get("codec_name")
+                break
+
+        try:
+            input_index = next(i for i, arg in enumerate(cmd) if arg == "-i")
+            if video_codec == "av1" and IS_MACOS:
+                cmd.insert(input_index, "none")
+                cmd.insert(input_index, "-hwaccel")
+        except StopIteration:
+            pass
+
+        try:
+            if self.verbose:
+                print(f"Running: {' '.join(cmd)}")
+            import subprocess
+
+            subprocess.run(cmd, check=True, capture_output=not self.verbose)
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode("utf-8") if exc.stderr else "Unknown error"
+            raise FFmpegError(stderr) from exc
 
     def _create_gif(
         self,
@@ -199,7 +228,6 @@ class Cutter:
         end: float,
         output_path: Path,
     ) -> None:
-        """Create a GIF using palette generation for high quality."""
         input_stream = ffmpeg.input(str(source_path))
 
         video = input_stream.video.filter("trim", start=start, end=end).filter(
@@ -208,31 +236,35 @@ class Cutter:
 
         palette_path = output_path.with_suffix(".png")
 
-        (
-            video.filter("palettegen", max_colors=256)
-            .output(str(palette_path))
-            .overwrite_output(palette_path.exists())
-            .run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
-        )
+        try:
+            palette_stream = video.filter("palettegen", max_colors=256)
+            palette_out = ffmpeg.output(palette_stream, str(palette_path))
+            palette_out = palette_out.overwrite_output()
+            palette_out.run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
+            palette_input = ffmpeg.input(str(palette_path))
 
-        (
-            ffmpeg.input(str(source_path))
-            .video.filter("trim", start=start, end=end)
-            .filter("setpts", "PTS-STARTPTS")
-            .filter("paletteuse", palette=str(palette_path))
-            .output(str(output_path))
-            .overwrite_output(output_path.exists())
-            .run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
-        )
-
-        palette_path.unlink()
+            (
+                ffmpeg.filter(
+                    [video, palette_input.video],
+                    "paletteuse",
+                )
+                .output(str(output_path))
+                .overwrite_output()
+                .run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
+            )
+        except ffmpeg.Error as exc:
+            stderr = exc.stderr.decode("utf-8") if exc.stderr else "Unknown error"
+            raise FFmpegError(stderr) from exc
+        finally:
+            if palette_path.exists():
+                palette_path.unlink()
 
     def audio(
         self,
         source_path: Path,
         start: float,
         end: float,
-        fmt: str,
+        fmt: str | Format,
         output_dir: Path | None = None,
         overwrite: bool = False,
     ) -> AudioSpec:
@@ -295,52 +327,77 @@ class Cutter:
         source_path: Path,
         start: float,
         end: float,
-        fmt: str,
+        fmt: str | Format,
         output_path: Path,
     ) -> None:
-        """Create an audio clip with frame-accurate trimming."""
         input_stream = ffmpeg.input(str(source_path))
 
-        audio = input_stream.audio.filter("atrim", start=start, end=end).filter(
-            "asetpts", "PTS-STARTPTS"
-        )
+        audio = input_stream.audio.filter(
+            "atrim",
+            start=start,
+            end=end,
+        ).filter("asetpts", "PTS-STARTPTS")
 
         output_kwargs = self._get_output_kwargs(fmt, audio=True)
-        ffmpeg.output(audio, str(output_path), **output_kwargs).overwrite_output(
-            output_path.exists()
-        ).run(capture_stdout=not self.verbose, capture_stderr=not self.verbose)
+        try:
+            ffmpeg.output(
+                audio,
+                str(output_path),
+                **output_kwargs,
+            ).overwrite_output().run(
+                capture_stdout=not self.verbose,
+                capture_stderr=not self.verbose,
+            )
+        except ffmpeg.Error as exc:
+            stderr = exc.stderr.decode("utf-8") if exc.stderr else "Unknown error"
+            raise FFmpegError(stderr) from exc
 
-    def _get_output_kwargs(self, fmt: str, audio: bool = False) -> dict:
-        """Get FFmpeg output kwargs for a format."""
-        if fmt == "mp4":
-            return {
-                "vcodec": "libx264",
-                "acodec": "aac",
-                "movflags": "+faststart",
-            }
-        elif fmt == "mkv":
-            return {
-                "vcodec": "libx264",
-                "acodec": "aac",
-                "f": "matroska",
-            }
-        elif fmt == "webm":
-            return {
-                "vcodec": "libvpx-vp9",
-                "acodec": "libopus",
-                "f": "webm",
-            }
-        elif fmt == "gif":
-            return {}
-        elif fmt == "m4a":
-            return {"acodec": "aac"}
-        elif fmt == "wav":
-            return {"acodec": "pcm_s16le"}
-        elif fmt == "mp3":
-            return {"acodec": "libmp3lame"}
-        else:
-            return {}
+    def _get_mac_output_kwargs(self, fmt: str | Format, audio: bool = False) -> dict:
+        match fmt:
+            case Format.MP4:
+                return {"vcodec": "h264_videotoolbox", "acodec": "aac", "b:v": "10M"}
+            case Format.MKV:
+                return {"vcodec": "libx264", "acodec": "aac", "f": "matroska"}
+            case Format.WEBM:
+                return {"vcodec": "libvpx-vp9", "acodec": "libopus", "f": "webm"}
+            case Format.GIF:
+                return {}
+            case Format.M4A:
+                return {"acodec": "aac"}
+            case Format.WAV:
+                return {"acodec": "pcm_s16le"}
+            case Format.MP3:
+                return {"acodec": "libmp3lame"}
+            case _:
+                return {}
 
-    def _get_ffmpeg_params(self, fmt: str, audio: bool = False) -> dict:
-        """Get FFmpeg parameters used for an output format."""
+    # TODO: use audio param
+    def _get_output_kwargs(self, fmt: str | Format, audio: bool = False) -> dict:
+        if IS_MACOS:
+            return self._get_mac_output_kwargs(fmt)
+
+        match fmt:
+            case Format.MP4:
+                return {"vcodec": "libx264", "acodec": "aac", "movflags": "+faststart"}
+            case Format.MKV:
+                return {
+                    "vcodec": "h264_videotoolbox",
+                    "acodec": "aac",
+                    "b:v": "10M",
+                    "f": "matroska",
+                }
+            case Format.WEBM:
+                return {"vcodec": "libvpx-vp9", "acodec": "libopus", "f": "webm"}
+            case Format.GIF:
+                return {}
+            case Format.M4A:
+                return {"acodec": "aac"}
+            case Format.WAV:
+                return {"acodec": "pcm_s16le"}
+            case Format.MP3:
+                return {"acodec": "libmp3lame"}
+            case _:
+                return {}
+
+    def _get_ffmpeg_params(self, fmt: str | Format, audio: bool = False) -> dict:
         return self._get_output_kwargs(fmt, audio)

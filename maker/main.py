@@ -18,6 +18,7 @@ from maker.shared import (
     NotADirectoryError,
     parse_range,
     format_time,
+    Format,
 )
 from maker.video import Downloader, Cutter
 
@@ -227,9 +228,9 @@ def cmd_yt_clip(args: argparse.Namespace) -> int:
 
         cutter = Cutter(
             output_dir=args.out,
-            audio_dir=args.audio_out,
             ffmpeg_bin=args.ffmpeg_bin,
             verbose=args.verbose,
+            overwrite=args.overwrite,
         )
 
         spec = cutter.clip(
@@ -278,6 +279,7 @@ def cmd_yt_audio(args: argparse.Namespace) -> int:
             audio_dir=args.out,
             ffmpeg_bin=args.ffmpeg_bin,
             verbose=args.verbose,
+            overwrite=args.overwrite,
         )
 
         spec = cutter.audio(
@@ -484,8 +486,8 @@ def main():
     )
     yt_clip.add_argument(
         "--fmt",
-        default="mp4",
-        choices=["mp4", "mkv", "webm", "gif"],
+        default=Format.MP4.value,
+        choices=[f.value for f in Format if f in Cutter.SUPPORTED_VIDEO_FORMATS],
         help="Output format",
     )
     yt_clip.add_argument(
@@ -518,7 +520,10 @@ def main():
     )
     yt_audio.add_argument("--clips-out", default="clips", help="Clips output directory")
     yt_audio.add_argument(
-        "--fmt", default="m4a", choices=["m4a", "wav", "mp3"], help="Output format"
+        "--fmt",
+        default=Format.M4A.value,
+        choices=[f.value for f in Format if f in Cutter.SUPPORTED_AUDIO_FORMATS],
+        help="Output format",
     )
     yt_audio.add_argument(
         "--downloads-dir",

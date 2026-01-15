@@ -13,6 +13,16 @@ class Color(str, Enum):
     RESET = "\033[0m"
 
 
+class Format(str, Enum):
+    MP4 = "mp4"
+    MKV = "mkv"
+    WEBM = "webm"
+    GIF = "gif"
+    M4A = "m4a"
+    WAV = "wav"
+    MP3 = "mp3"
+
+
 def colored(text: str, color: Color) -> str:
     return f"{color.value}{text}{Color.RESET.value}"
 
@@ -48,6 +58,10 @@ class FFmpegNotFoundError(Exception):
         super().__init__(
             "FFmpeg binary not found. Install FFmpeg or run: pip install imageio-ffmpeg"
         )
+
+class FFmpegError(Exception):
+    def __init__(self, stderr: any):
+        super().__init__(f"FFmpeg error: {stderr}")
 
 
 class InvalidTimeFormatError(ValueError):
