@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import glob as glob_module
 import os
-from enum import Enum
 from pathlib import Path
 from typing import List, Tuple
 
@@ -10,59 +9,7 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from tqdm import tqdm
 
-
-class Color(str, Enum):
-    SUCCESS = "\033[92m"
-    ERROR = "\033[91m"
-    INFO = "\033[94m"
-    WARNING = "\033[93m"
-    RESET = "\033[0m"
-
-
-def colored(text: str, color: Color) -> str:
-    return f"{color.value}{text}{Color.RESET.value}"
-
-
-class PaperSize(Enum):
-    A0 = (2384, 3370)
-    A1 = (1684, 2384)
-    A2 = (1191, 1684)
-    A3 = (842, 1191)
-    A4 = (595, 842)
-    A5 = (420, 595)
-    A6 = (298, 420)
-    A7 = (210, 298)
-    A8 = (147, 210)
-    A9 = (105, 147)
-    A10 = (74, 105)
-    B0 = (2835, 4008)
-    B1 = (2004, 2835)
-    B2 = (1417, 2004)
-    B3 = (1001, 1417)
-    B4 = (709, 1001)
-    B5 = (499, 709)
-    B6 = (354, 499)
-    B7 = (249, 354)
-    B8 = (176, 249)
-    B9 = (125, 176)
-    B10 = (88, 125)
-
-    @property
-    def width(self) -> int:
-        return self.value[0]
-
-    @property
-    def height(self) -> int:
-        return self.value[1]
-
-    @staticmethod
-    def from_string(size_str: str) -> "PaperSize":
-        try:
-            return PaperSize[size_str.upper()]
-        except KeyError:
-            raise ValueError(
-                f"Invalid paper size: {size_str}. Valid sizes: {[s.name for s in PaperSize]}"
-            )
+from maker.shared import Color, echo, PaperSize, InvalidInputError, NotADirectoryError
 
 
 class ImageProcessor:
@@ -113,13 +60,15 @@ class ImageProcessor:
     def collect_images_from_directory(directory: str) -> List[str]:
         dir_path = Path(directory)
         if not dir_path.is_dir():
-            raise ValueError(f"Not a directory: {directory}")
+            raise NotADirectoryError(directory)
 
-        images = []
-        for file in dir_path.iterdir():
-            if file.is_file() and ImageProcessor.is_supported_image(str(file)):
-                images.append(str(file))
-        return sorted(images)
+        return sorted(
+            [
+                f
+                for f in dir_path.iterdir()
+                if f.is_file() and ImageProcessor.is_supported_image(str(f))
+            ]
+        )
 
     @staticmethod
     def collect_images_from_glob(pattern: str) -> List[str]:
@@ -152,10 +101,10 @@ class PDFGenerator:
     def create_pdf(self, image_paths: List[str]) -> None:
         total = len(image_paths)
         if total == 0:
-            print(colored("No images to process!", Color.ERROR))
+            echo("No images to process!", Color.ERROR)
             return
 
-        print(colored(f"Creating PDF with {total} image(s)...", Color.INFO))
+        echo(f"Creating PDF with {total} image(s)...", Color.INFO)
 
         c = canvas.Canvas(
             self.output_path, pagesize=(self.paper_size.width, self.paper_size.height)
@@ -173,12 +122,12 @@ class PDFGenerator:
                 c.showPage()
 
                 if self.verbose:
-                    print(colored(f"  Added: {Path(image_path).name}", Color.INFO))
-            except Exception as e:
-                print(colored(f"  Error processing {image_path}: {e}", Color.ERROR))
+                    echo(f"  Added: {Path(image_path).name}", Color.INFO)
+            except Exception as e:  # noqa: PERF203
+                echo(f"  Error processing {image_path}: {e}", Color.ERROR)
 
         c.save()
-        print(colored(f"PDF created successfully: {self.output_path}", Color.SUCCESS))
+        echo(f"PDF created successfully: {self.output_path}", Color.SUCCESS)
 
 
 async def process_input(input_arg: str) -> List[str]:
@@ -193,8 +142,8 @@ async def process_input(input_arg: str) -> List[str]:
             return ImageProcessor.collect_images_from_list(input_arg)
         elif os.path.isfile(input_arg):
             return [input_arg] if ImageProcessor.is_supported_image(input_arg) else []
-        else:
-            raise ValueError(f"Invalid input: {input_arg}")
+
+        raise InvalidInputError(input_arg)
 
     return await loop.run_in_executor(None, collect)
 
@@ -221,13 +170,13 @@ def main():
     try:
         paper_size = PaperSize.from_string(args.size)
     except ValueError as e:
-        print(colored(str(e), Color.ERROR))
+        echo(str(e), Color.ERROR)
         return 1
 
     image_paths = asyncio.run(process_input(args.input))
 
     if not image_paths:
-        print(colored("No valid images found!", Color.ERROR))
+        echo("No valid images found!", Color.ERROR)
         return 1
 
     generator = PDFGenerator(args.output, paper_size, args.verbose)
