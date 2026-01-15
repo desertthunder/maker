@@ -5,6 +5,7 @@ CLI tool to make stuff.
 ## Features
 
 - **PDF Generation**: Convert image collections to PDF documents with customizable page sizes.
+- **Resume to PDF**: Convert JSON/YAML resumes (jsonresume.org schema) to formatted PDFs.
 - **YouTube Tools**: Download videos/playlists and process them into clips or audio.
 
 ## Installation
@@ -39,7 +40,29 @@ maker pdf ./docs -s A4 -v
 - `-s, --size`: Page size A0-A10, B0-B10 (default: `A4`)
 - `-v, --verbose`: Enable verbose logging
 
-### Video Downloading (`yt`)
+### Resume to PDF
+
+Convert JSON or YAML resumes following the [JSON Resume](https://jsonresume.org) schema to formatted PDFs.
+
+```sh
+# Basic usage
+maker resume resume.json -o output.pdf
+
+# With custom font
+maker resume resume.yaml --font "Roboto" --download-fonts
+
+# Download Google Fonts automatically
+maker resume resume.json --font Geist --download-fonts -v
+```
+
+#### Options
+
+- `-o, --output`: Output PDF path (default: `resume.pdf`)
+- `--font`: Font family name (default: `Helvetica`)
+- `--download-fonts`: Download Google Fonts if not found locally
+- `-v, --verbose`: Enable verbose logging
+
+### Video Downloading
 
 Manage YouTube downloads and processing.
 

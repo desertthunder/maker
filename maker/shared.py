@@ -59,6 +59,7 @@ class FFmpegNotFoundError(Exception):
             "FFmpeg binary not found. Install FFmpeg or run: pip install imageio-ffmpeg"
         )
 
+
 class FFmpegError(Exception):
     def __init__(self, stderr: any):
         super().__init__(f"FFmpeg error: {stderr}")
@@ -92,6 +93,22 @@ class TimeRangeError(ValueError):
         if duration is not None:
             msg += f" and within video duration ({duration})"
         super().__init__(msg)
+
+
+class FontNotFoundError(Exception):
+    """Raised when requested font is unavailable and download is disabled."""
+
+    def __init__(self, font_name: str):
+        super().__init__(
+            f"Font '{font_name}' not found. Use --download-fonts to fetch from Google Fonts"
+        )
+
+
+class FontDownloadError(Exception):
+    """Raised when Google Fonts API download fails."""
+
+    def __init__(self, font_name: str, reason: str):
+        super().__init__(f"Failed to download font '{font_name}': {reason}")
 
 
 class PaperSize(Enum):
@@ -253,9 +270,7 @@ class ManifestManager:
     """Manager for reading and writing manifest files."""
 
     @staticmethod
-    def write_download_manifest(
-        alias: str, spec: DownloadSpec, downloads_dir: Path
-    ) -> None:
+    def write_download_manifest(alias: str, spec: DownloadSpec, downloads_dir: Path) -> None:
         """Write manifest for a downloaded video."""
         manifest_dir = downloads_dir / alias
         manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -277,9 +292,7 @@ class ManifestManager:
         return DownloadSpec(**data)
 
     @staticmethod
-    def append_artifact_record(
-        spec: ClipSpec | AudioSpec, artifacts_file: Path
-    ) -> None:
+    def append_artifact_record(spec: ClipSpec | AudioSpec, artifacts_file: Path) -> None:
         """Append artifact record to JSONL file."""
         artifacts_file.parent.mkdir(parents=True, exist_ok=True)
 
