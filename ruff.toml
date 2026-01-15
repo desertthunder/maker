@@ -1,4 +1,3 @@
-# Exclude a variety of commonly ignored directories.
 exclude = [
     ".bzr",
     ".direnv",
@@ -28,18 +27,12 @@ exclude = [
     "venv",
 ]
 
-# Same as Black.
-line-length = 88
+line-length = 99
 indent-width = 4
-
-# Assume Python 3.9
 target-version = "py39"
 
 [lint]
-# Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`) codes by default.
-# Unlike Flake8, Ruff doesn't enable pycodestyle warnings (`W`) or
-# McCabe complexity (`C901`) by default.
-select = ["E4", "E7", "E9", "F", "C90", "PERF", "TRY", "B"]
+select = ["E4", "E7", "E9", "F", "C90", "PERF", "TRY", "B", "W"]
 ignore = []
 
 fixable = ["ALL"]
